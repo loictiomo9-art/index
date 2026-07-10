@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DeepMemBot – Chatbot Presque Aussi Fort que DeepSeek</title>
+    <title>DeepMemBot - Chatbot Mémoire</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -108,13 +108,14 @@
         for (let j = 0; j <= len2; j++) dp[0][j] = j;
         for (let i = 1; i <= len1; i++) {
             for (let j = 1; j <= len2; j++) {
-                dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (s1[i - 1] === s2[j - 1] ? 0 : 1));
+                dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1,
+                    dp[i - 1][j - 1] + (s1[i - 1] === s2[j - 1] ? 0 : 1));
             }
         }
         return 1.0 - dp[len1][len2] / Math.max(len1, len2);
     };
 
-    // ================== 2. Base de connaissances (petite) ==================
+    // ================== 2. Base de connaissances ==================
     const ONTOLOGY = {
         food: ["pizza", "pâtes", "sushi", "burger", "salade", "chocolat", "frites", "fromage", "pain", "riz"],
         drink: ["eau", "café", "thé", "jus", "soda", "bière", "vin"],
@@ -131,7 +132,7 @@
         return null;
     };
 
-    // ================== 3. Canonisation des prédicats ==================
+    // ================== 3. Canonisation ==================
     const SURFACE_TO_CANON = {
         "name":"name","nom":"name","prénom":"name","first name":"name",
         "age":"age","âge":"age","anniversaire":"birthday","birthday":"birthday",
@@ -176,7 +177,7 @@
     }
     const canonicalizeVerb = v => VERB_CANON[v.trim().toLowerCase()] || v.trim().toLowerCase();
 
-    // ================== 4. Moteur de mémoire avancé ==================
+    // ================== 4. Moteur de mémoire ==================
     class MemoryEngine {
         constructor() {
             this.facts = this.load();
@@ -208,11 +209,10 @@
             this.applyInference(subj, pred, obj, polarity);
         }
         applyInference(subj, pred, obj, polarity) {
-            // Héritage simple : si like X et X est une food, alors like food (si pas déjà)
             if (pred === "like" && polarity && subj === "user") {
                 const cat = getCategory(obj);
                 if (cat) {
-                    const parentPred = "favorite_" + cat; // ex: favorite_food
+                    const parentPred = "favorite_" + cat;
                     if (!this.queryFacts(subj, parentPred).length) {
                         this.addFact(subj, parentPred, obj, true, "auto");
                     }
@@ -255,139 +255,134 @@
         }
     }
 
-    // ================== 5. Patterns d'extraction améliorés ==================
+    // ================== 5. Patterns d'extraction (JS natif) ==================
     const patterns = [];
-    const addPat = (regex, subj, verbOrPred, objGroup, polarity, lang) => {
-        patterns.push({ regex: new RegExp(regex, 'i'), subj, verbOrPred, objGroup, polarity, lang });
-    };
-    // Français
-    const fr = [
-        ["^je suis (.+)$", "user","is","obj",true,"fr"],
-        ["^je ne suis pas (.+)$", "user","is","obj",false,"fr"],
-        ["^j'suis (.+)$", "user","is","obj",true,"fr"],
-        ["^j'suis pas (.+)$", "user","is","obj",false,"fr"],
-        ["^tu es (.+)$", "bot","is","obj",true,"fr"],
-        ["^tu n'es pas (.+)$", "bot","is","obj",false,"fr"],
-        ["^t'es (.+)$", "bot","is","obj",true,"fr"],
-        ["^t'es pas (.+)$", "bot","is","obj",false,"fr"],
-        ["^j'aime (.+)$", "user","like","obj",true,"fr"],
-        ["^je n'aime pas (.+)$", "user","like","obj",false,"fr"],
-        ["^j'adore (.+)$", "user","like","obj",true,"fr"],
-        ["^je n'adore pas (.+)$", "user","like","obj",false,"fr"],
-        ["^tu aimes (.+)$", "bot","like","obj",true,"fr"],
-        ["^tu n'aimes pas (.+)$", "bot","like","obj",false,"fr"],
-        ["^j'ai (.+)$", "user","has","obj",true,"fr"],
-        ["^je n'ai pas (.+)$", "user","has","obj",false,"fr"],
-        ["^tu as (.+)$", "bot","has","obj",true,"fr"],
-        ["^tu n'as pas (.+)$", "bot","has","obj",false,"fr"],
-        ["^mon (.+?) est (.+)$", "user","poss","obj",true,"fr"],
-        ["^ma (.+?) est (.+)$", "user","poss","obj",true,"fr"],
-        ["^mes (.+?) sont (.+)$", "user","poss","obj",true,"fr"],
-        ["^ton (.+?) est (.+)$", "bot","poss","obj",true,"fr"],
-        ["^ta (.+?) est (.+)$", "bot","poss","obj",true,"fr"],
-        ["^tes (.+?) sont (.+)$", "bot","poss","obj",true,"fr"],
-        ["^je veux (.+)$", "user","want","obj",true,"fr"],
-        ["^je ne veux pas (.+)$", "user","want","obj",false,"fr"],
-        ["^je préfère (.+)$", "user","prefer","obj",true,"fr"],
-        ["^je me sens (.+)$", "user","mood","obj",true,"fr"],
-        ["^je suis de (.+)$", "user","city","obj",true,"fr"],
-        ["^je viens de (.+)$", "user","country","obj",true,"fr"],
-    ];
-    fr.forEach(p => addPat(...p));
+    // Ajoute un pattern avec groupes capturants numérotés
+    function addPat(regexStr, subj, verbOrPred, objGroupIdx, polarity, lang) {
+        patterns.push({ regex: new RegExp(regexStr, 'i'), subj, verbOrPred, objGroupIdx, polarity, lang });
+    }
+
+    // Français (groupes : 1 = objet, ou 1 = poss et 2 = obj pour les possessifs)
+    addPat("^je suis (.+)$", "user","is",1,true,"fr");
+    addPat("^je ne suis pas (.+)$", "user","is",1,false,"fr");
+    addPat("^j'suis (.+)$", "user","is",1,true,"fr");
+    addPat("^j'suis pas (.+)$", "user","is",1,false,"fr");
+    addPat("^tu es (.+)$", "bot","is",1,true,"fr");
+    addPat("^tu n'es pas (.+)$", "bot","is",1,false,"fr");
+    addPat("^t'es (.+)$", "bot","is",1,true,"fr");
+    addPat("^t'es pas (.+)$", "bot","is",1,false,"fr");
+    addPat("^j'aime (.+)$", "user","like",1,true,"fr");
+    addPat("^je n'aime pas (.+)$", "user","like",1,false,"fr");
+    addPat("^j'adore (.+)$", "user","like",1,true,"fr");
+    addPat("^je n'adore pas (.+)$", "user","like",1,false,"fr");
+    addPat("^tu aimes (.+)$", "bot","like",1,true,"fr");
+    addPat("^tu n'aimes pas (.+)$", "bot","like",1,false,"fr");
+    addPat("^j'ai (.+)$", "user","has",1,true,"fr");
+    addPat("^je n'ai pas (.+)$", "user","has",1,false,"fr");
+    addPat("^tu as (.+)$", "bot","has",1,true,"fr");
+    addPat("^tu n'as pas (.+)$", "bot","has",1,false,"fr");
+    addPat("^mon (.+?) est (.+)$", "user","poss",2,true,"fr");
+    addPat("^ma (.+?) est (.+)$", "user","poss",2,true,"fr");
+    addPat("^mes (.+?) sont (.+)$", "user","poss",2,true,"fr");
+    addPat("^ton (.+?) est (.+)$", "bot","poss",2,true,"fr");
+    addPat("^ta (.+?) est (.+)$", "bot","poss",2,true,"fr");
+    addPat("^tes (.+?) sont (.+)$", "bot","poss",2,true,"fr");
+    addPat("^je veux (.+)$", "user","want",1,true,"fr");
+    addPat("^je ne veux pas (.+)$", "user","want",1,false,"fr");
+    addPat("^je préfère (.+)$", "user","prefer",1,true,"fr");
+    addPat("^je me sens (.+)$", "user","mood",1,true,"fr");
+    addPat("^je suis de (.+)$", "user","city",1,true,"fr");
+    addPat("^je viens de (.+)$", "user","country",1,true,"fr");
+
     // Anglais
-    const en = [
-        ["^i am (.+)$", "user","is","obj",true,"en"],
-        ["^i'm (.+)$", "user","is","obj",true,"en"],
-        ["^i am not (.+)$", "user","is","obj",false,"en"],
-        ["^i'm not (.+)$", "user","is","obj",false,"en"],
-        ["^you are (.+)$", "bot","is","obj",true,"en"],
-        ["^you're (.+)$", "bot","is","obj",true,"en"],
-        ["^you are not (.+)$", "bot","is","obj",false,"en"],
-        ["^you aren't (.+)$", "bot","is","obj",false,"en"],
-        ["^i (?:like|love|enjoy|adore) (.+)$", "user","like","obj",true,"en"],
-        ["^i (?:don't|do not) (?:like|love|enjoy|adore) (.+)$", "user","like","obj",false,"en"],
-        ["^you (?:like|love|enjoy|adore) (.+)$", "bot","like","obj",true,"en"],
-        ["^you (?:don't|do not) (?:like|love|enjoy|adore) (.+)$", "bot","like","obj",false,"en"],
-        ["^i have (.+)$", "user","has","obj",true,"en"],
-        ["^i don't have (.+)$", "user","has","obj",false,"en"],
-        ["^you have (.+)$", "bot","has","obj",true,"en"],
-        ["^you don't have (.+)$", "bot","has","obj",false,"en"],
-        ["^my (.+?) is (.+)$", "user","poss","obj",true,"en"],
-        ["^your (.+?) is (.+)$", "bot","poss","obj",true,"en"],
-        ["^i want (.+)$", "user","want","obj",true,"en"],
-        ["^i don't want (.+)$", "user","want","obj",false,"en"],
-        ["^i prefer (.+)$", "user","prefer","obj",true,"en"],
-        ["^i feel (.+)$", "user","mood","obj",true,"en"],
-        ["^i am from (.+)$", "user","country","obj",true,"en"],
-        ["^i'm from (.+)$", "user","country","obj",true,"en"],
-    ];
-    en.forEach(p => addPat(...p));
+    addPat("^i am (.+)$", "user","is",1,true,"en");
+    addPat("^i'm (.+)$", "user","is",1,true,"en");
+    addPat("^i am not (.+)$", "user","is",1,false,"en");
+    addPat("^i'm not (.+)$", "user","is",1,false,"en");
+    addPat("^you are (.+)$", "bot","is",1,true,"en");
+    addPat("^you're (.+)$", "bot","is",1,true,"en");
+    addPat("^you are not (.+)$", "bot","is",1,false,"en");
+    addPat("^you aren't (.+)$", "bot","is",1,false,"en");
+    addPat("^i (?:like|love|enjoy|adore) (.+)$", "user","like",1,true,"en");
+    addPat("^i (?:don't|do not) (?:like|love|enjoy|adore) (.+)$", "user","like",1,false,"en");
+    addPat("^you (?:like|love|enjoy|adore) (.+)$", "bot","like",1,true,"en");
+    addPat("^you (?:don't|do not) (?:like|love|enjoy|adore) (.+)$", "bot","like",1,false,"en");
+    addPat("^i have (.+)$", "user","has",1,true,"en");
+    addPat("^i don't have (.+)$", "user","has",1,false,"en");
+    addPat("^you have (.+)$", "bot","has",1,true,"en");
+    addPat("^you don't have (.+)$", "bot","has",1,false,"en");
+    addPat("^my (.+?) is (.+)$", "user","poss",2,true,"en");
+    addPat("^your (.+?) is (.+)$", "bot","poss",2,true,"en");
+    addPat("^i want (.+)$", "user","want",1,true,"en");
+    addPat("^i don't want (.+)$", "user","want",1,false,"en");
+    addPat("^i prefer (.+)$", "user","prefer",1,true,"en");
+    addPat("^i feel (.+)$", "user","mood",1,true,"en");
+    addPat("^i am from (.+)$", "user","country",1,true,"en");
+    addPat("^i'm from (.+)$", "user","country",1,true,"en");
 
     function extractFact(text) {
         text = text.trim();
-        for (const {regex, subj, verbOrPred, objGroup, polarity, lang} of patterns) {
+        for (const {regex, subj, verbOrPred, objGroupIdx, polarity, lang} of patterns) {
             const m = text.match(regex);
             if (!m) continue;
+            let obj, pred;
             if (verbOrPred === "poss") {
+                // Groupes: 1 = poss, 2 = obj
                 const rawPoss = m[1].trim();
-                const obj = m[2].trim().replace(/[.?!;:,]$/, '');
-                let pred = canonicalizePredicate(rawPoss);
-                if (!pred) pred = rawPoss.replace(/ /g, "_");
-                return { subj, pred, obj, polarity, lang };
+                obj = m[2].trim().replace(/[.?!;:,]$/, '');
+                pred = canonicalizePredicate(rawPoss) || rawPoss.replace(/ /g, "_");
             } else {
-                const obj = m[1].trim().replace(/[.?!;:,]$/, '');
-                const pred = canonicalizeVerb(verbOrPred);
-                return { subj, pred, obj, polarity, lang };
+                obj = m[1].trim().replace(/[.?!;:,]$/, '');
+                pred = canonicalizeVerb(verbOrPred);
             }
+            return { subj, pred, obj, polarity, lang };
         }
         return null;
     }
 
     // ================== 6. Questions ==================
     const qPatterns = [];
-    const addQ = (regex, qtype, subj, predGroup, objGroup, lang) => {
-        qPatterns.push({ regex: new RegExp(regex, 'i'), qtype, subj, predGroup, objGroup, lang });
-    };
+    function addQ(regexStr, qtype, subj, predGroup, objGroupIdx, lang) {
+        qPatterns.push({ regex: new RegExp(regexStr, 'i'), qtype, subj, predGroup, objGroupIdx, lang });
+    }
+
     // Français
-    [
-        ["^(?:quel(?:le)? est|qu'est-ce que|c'est quoi) mon (.+?) ?\\??$", "get","user","pred",null,"fr"],
-        ["^(?:quel(?:le)? est|qu'est-ce que|c'est quoi) ton (.+?) ?\\??$", "get","bot","pred",null,"fr"],
-        ["^suis-je (.+?) ?\\??$", "check","user","is","obj","fr"],
-        ["^es-tu (.+?) ?\\??$", "check","bot","is","obj","fr"],
-        ["^est-ce que j'aime (.+?) ?\\??$", "check","user","like","obj","fr"],
-        ["^aimes-tu (.+?) ?\\??$", "check","bot","like","obj","fr"],
-        ["^est-ce que j'ai (.+?) ?\\??$", "check","user","has","obj","fr"],
-        ["^as-tu (.+?) ?\\??$", "check","bot","has","obj","fr"],
-        ["^qu'est-ce que j'aime ?\\??$", "get","user","like",null,"fr"],
-        ["^qu'est-ce que tu aimes ?\\??$", "get","bot","like",null,"fr"],
-        ["^comment je me sens ?\\??$", "get","user","mood",null,"fr"],
-        ["^d'où je viens ?\\??$", "get","user","country",null,"fr"],
-    ].forEach(p => addQ(...p));
+    addQ("^(?:quel(?:le)? est|qu'est-ce que|c'est quoi) mon (.+?) ?\\??$", "get","user","pred",1,"fr");
+    addQ("^(?:quel(?:le)? est|qu'est-ce que|c'est quoi) ton (.+?) ?\\??$", "get","bot","pred",1,"fr");
+    addQ("^suis-je (.+?) ?\\??$", "check","user","is",1,"fr");
+    addQ("^es-tu (.+?) ?\\??$", "check","bot","is",1,"fr");
+    addQ("^est-ce que j'aime (.+?) ?\\??$", "check","user","like",1,"fr");
+    addQ("^aimes-tu (.+?) ?\\??$", "check","bot","like",1,"fr");
+    addQ("^est-ce que j'ai (.+?) ?\\??$", "check","user","has",1,"fr");
+    addQ("^as-tu (.+?) ?\\??$", "check","bot","has",1,"fr");
+    addQ("^qu'est-ce que j'aime ?\\??$", "get","user","like",null,"fr");
+    addQ("^qu'est-ce que tu aimes ?\\??$", "get","bot","like",null,"fr");
+    addQ("^comment je me sens ?\\??$", "get","user","mood",null,"fr");
+    addQ("^d'où je viens ?\\??$", "get","user","country",null,"fr");
+
     // Anglais
-    [
-        ["^what is my (.+?) ?\\??$", "get","user","pred",null,"en"],
-        ["^what's my (.+?) ?\\??$", "get","user","pred",null,"en"],
-        ["^what is your (.+?) ?\\??$", "get","bot","pred",null,"en"],
-        ["^what's your (.+?) ?\\??$", "get","bot","pred",null,"en"],
-        ["^am i (.+?) ?\\??$", "check","user","is","obj","en"],
-        ["^are you (.+?) ?\\??$", "check","bot","is","obj","en"],
-        ["^do i like (.+?) ?\\??$", "check","user","like","obj","en"],
-        ["^do you like (.+?) ?\\??$", "check","bot","like","obj","en"],
-        ["^do i have (.+?) ?\\??$", "check","user","has","obj","en"],
-        ["^do you have (.+?) ?\\??$", "check","bot","has","obj","en"],
-        ["^what do i like ?\\??$", "get","user","like",null,"en"],
-        ["^what do you like ?\\??$", "get","bot","like",null,"en"],
-        ["^how do i feel ?\\??$", "get","user","mood",null,"en"],
-        ["^where am i from ?\\??$", "get","user","country",null,"en"],
-    ].forEach(p => addQ(...p));
+    addQ("^what is my (.+?) ?\\??$", "get","user","pred",1,"en");
+    addQ("^what's my (.+?) ?\\??$", "get","user","pred",1,"en");
+    addQ("^what is your (.+?) ?\\??$", "get","bot","pred",1,"en");
+    addQ("^what's your (.+?) ?\\??$", "get","bot","pred",1,"en");
+    addQ("^am i (.+?) ?\\??$", "check","user","is",1,"en");
+    addQ("^are you (.+?) ?\\??$", "check","bot","is",1,"en");
+    addQ("^do i like (.+?) ?\\??$", "check","user","like",1,"en");
+    addQ("^do you like (.+?) ?\\??$", "check","bot","like",1,"en");
+    addQ("^do i have (.+?) ?\\??$", "check","user","has",1,"en");
+    addQ("^do you have (.+?) ?\\??$", "check","bot","has",1,"en");
+    addQ("^what do i like ?\\??$", "get","user","like",null,"en");
+    addQ("^what do you like ?\\??$", "get","bot","like",null,"en");
+    addQ("^how do i feel ?\\??$", "get","user","mood",null,"en");
+    addQ("^where am i from ?\\??$", "get","user","country",null,"en");
 
     function parseQuestion(text) {
         text = text.trim().replace(/\?+$/, '');
-        for (const {regex, qtype, subj, predGroup, objGroup, lang} of qPatterns) {
+        for (const {regex, qtype, subj, predGroup, objGroupIdx, lang} of qPatterns) {
             const m = text.match(regex);
             if (!m) continue;
             if (qtype === "get") {
-                let rawPred = m[1].trim();
+                let rawPred = m[1] ? m[1].trim() : null;
                 let pred;
                 if (predGroup === "pred") pred = canonicalizePredicate(rawPred);
                 else if (["like","has","is","mood","country"].includes(predGroup)) pred = predGroup;
@@ -402,7 +397,7 @@
         return null;
     }
 
-    // ================== 7. Commandes étendues ==================
+    // ================== 7. Commandes ==================
     const jokes = {
         fr: [
             "Pourquoi les plongeurs plongent toujours en arrière ? Parce que sinon ils tombent dans le bateau.",
@@ -417,4 +412,15 @@
             "Parallel lines have so much in common. It’s a shame they’ll never meet."
         ]
     };
-   
+    const riddles = {
+        fr: [
+            ["Je parle sans bouche, j'entends sans oreilles. Qui suis-je ?", "écho"],
+            ["Plus il y en a, moins on voit. Qu'est-ce ?", "obscurité"]
+        ],
+        en: [
+            ["I speak without a mouth and hear without ears. What am I?", "echo"],
+            ["The more of this there is, the less you see. What is it?", "darkness"]
+        ]
+    };
+
+ 

@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chatbot à Mémoire</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 700px;
+      margin: 2rem auto;
+      background: #f0f2f5;
+      padding: 0 1rem;
+    }
+    h1 { text-align: center; color: #333; }
+    #chatbox {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      padding: 1rem;
+      height: 400px;
+      overflow-y: auto;
+      margin-bottom: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .message {
+      max-width: 80%;
+      padding: 0.6rem 1rem;
+      border-radius: 18px;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .user {
+      align-self: flex-end;
+      background: #007aff;
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+    .bot {
+      align-self: flex-start;
+      background: #e5e5ea;
+      color: #1c1c1e;
+      border-bottom-left-radius: 4px;
+    }
+    #input-area {
+      display: flex;
+      gap: 0.5rem;
+    }
+    #userInput {
+      flex: 1;
+      padding: 0.7rem 1rem;
+      border: 1px solid #ccc;
+      border-radius: 24px;
+      font-size: 1rem;
+      outline: none;
+    }
+    #userInput:focus { border-color: #007aff; }
+    button {
+      background: #007aff;
+      color: white;
+      border: none;
+      border-radius: 24px;
+      padding: 0.7rem 1.5rem;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #005bb5; }
+    .info { text-align: center; color: #666; font-size: 0.9rem; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>🤖 Chatbot avec Mémoire</h1>
+  <div id="chatbox"></div>
+  <div id="input-area">
+    <input type="text" id="userInput" placeholder="Parlez au bot..." autofocus>
+    <button onclick="processInput()">Envoyer</button>
+  </div>
+  <div class="info">Bilingue FR/EN | Dites « oublie tout sur moi », « raconte une blague », « calcule 2+2 »…</div>
+
+  <script>
+    // ======================== 1. Outils de similarité floue (Levenshtein) ========================
+    function levenshteinRatio(s1, s2) {
+      s1 = s1.toLowerCase(); s2 = s2.toLowerCase();
+      if (!s1 && !s2) return 1.0;
+      if (!s1 || !s2) return 0.0;
+      const len1 = s1.length, len2 = s2.length;
+      const dp = Array.from({ length: len1 + 1 }, () => Array(len2 + 1).fill(0));
+      for (let i = 0; i <= len1; i++) dp[i][0] = i;
+      for (let j = 0; j <= len2; j++) dp[0][j] = j;
+      for (let i = 1; i <= len1; i++) {
+        for (let j = 1; j <= len2; j++) {
+          const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+          dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+        }
+      }
+      return 1.0 - dp[len1][len2] / Math.max(len1, len2);
+    }
+
+    // ======================== 2. Synonymes et canonisation ========================
+    const SURFACE_TO_CANONICAL = {
+      "name": "name", "nom": "name", "prénom": "name", "first name": "name",
+      "âge": "age", "age": "age", "anniversaire": "birthday", "birthday": "birthday",
+      "couleur préférée": "favorite_color", "couleur favorite": "favorite_color",
+      "favorite color": "favorite_color", "fav color": "favorite_color",
+      "plat préféré": "favorite_food", "nourriture préférée": "favorite_food",
+      "favorite food": "favorite_food", "fav food": "favorite_food",
+      "boisson préférée": "favorite_drink", "favorite drink": "favorite_drink",
+      "animal préféré": "favorite_animal", "favorite animal": "favorite_animal",
+      "film préféré": "favorite_movie", "favorite movie": "favorite_movie",
+      "livre préféré": "favorite_book", "favorite book": "favorite_book",
+      "chanson préférée": "favorite_song", "favorite song": "favorite_song",
+      "humeur": "mood", "mood": "mood", "état": "state", "state": "state",
+      "travail": "job", "job": "job", "métier": "job",
+      "pays": "country", "country": "country", "ville": "city", "city": "city",
+      "langue": "language", "language": "language"
+    };
+    const REVERSE_CANONICAL = {};
+    for (const [k, v] of Object.entries(SURFACE_TO_CANONICAL)) REVERSE_CANONICAL[k] = v;
+
+    const UNIQUE_PREDICATES = new Set([
+      "name", "age", "birthday", "favorite_color", "favorite_food",
+      "favorite_drink", "favorite_animal", "favorite_movie", "favorite_book",
+      "favorite_song", "mood", "job", "country", "city", "language", "state"
+    ]);
+
+    const VERB_CANONICAL = {
+      "am": "is", "are": "is", "is": "is", "like": "like", "love": "like",
+      "enjoy": "like", "adore": "like", "have": "has", "has": "has", "got": "has",
+      "suis": "is", "es": "is", "est": "is", "êtes": "is", "sont": "is",
+      "aime": "like", "adore": "like", "kiffe": "like",
+      "ai": "has", "as": "has", "a": "has", "avons": "has", "avez": "has", "ont": "has"
+    };
+
+    function canonicalizePredicate(surface, threshold = 0.75) {
+      surface = surface.trim().toLowerCase();
+      if (REVERSE_CANONICAL[surface]) return REVERSE_CANONICAL[surface];
+      let bestRatio = 0.0, bestCanon = null;
+      for (const [key, canon] of Object.entries(REVERSE_CANONICAL)) {
+        const ratio = levenshteinRatio(surface, key);
+        if (ratio > bestRatio) { bestRatio = ratio; bestCanon = canon; }
+      }
+      return bestRatio >= threshold ? bestCanon : surface.replace(/ /g, "_");
+    }
+
+    function canonicalizeVerb(verb) {
+      verb = verb.trim().toLowerCase();
+      return VERB_CANONICAL[verb] || verb;
+    }
+
+    // ======================== 3. Moteur de mémoire (avec localStorage) ========================
+    class MemoryEngine {
+      constructor() {
+        this.facts = this.loadFacts();
+      }
+
+      loadFacts() {
+        try {
+          const stored = localStorage.getItem('chatbot_facts');
+          if (!stored) return [];
+          const parsed = JSON.parse(stored);
+          // Conversion des timestamps string en Date
+          return parsed.map(f => ({ ...f, timestamp: new Date(f.timestamp) }));
+        } catch (e) {
+          return [];
+        }
+      }
+
+      saveFacts() {
+        localStorage.setItem('chatbot_facts', JSON.stringify(this.facts));
+      }
+
+      addFact(subject, predicate, obj, polarity = true, language = "en") {
+        obj = obj.trim().toLowerCase();
+        predicate = predicate.trim().toLowerCase();
+        // Unicité
+        if (UNIQUE_PREDICATES.has(predicate)) {
+          this.facts = this.facts.filter(f => !(f.subject === subject && f.predicate === predicate));
+        } else {
+          for (const fact of this.facts) {
+            if (fact.subject === subject && fact.predicate === predicate && fact.object === obj) {
+              fact.polarity = polarity;
+              fact.timestamp = new Date();
+              this.saveFacts();
+              return;
+            }
+          }
+        }
+        this.facts.push({
+          subject, predicate, object: obj, polarity, language,
+          timestamp: new Date()
+        });
+        this.saveFacts();
+      }
+
+      queryFacts(subject, predicate, obj = null, fuzzyObj = false, objThreshold = 0.8) {
+        return this.facts.filter(fact => {
+          if (fact.subject !== subject) return false;
+          if (fact.predicate !== predicate) return false;
+          if (obj !== null) {
+            if (fuzzyObj) {
+              return levenshteinRatio(obj.toLowerCase(), fact.object) >= objThreshold;
+            } else {
+              return fact.object === obj.toLowerCase();
+            }
+          }
+          return true;
+        });
+      }
+
+      getAllSubjectFacts(subject) {
+        return this.facts.filter(f => f.subject === subject);
+      }
+
+      forgetFacts(subject, predicate = null, obj = null, fuzzyObj = false, objThreshold = 0.8) {
+        this.facts = this.facts.filter(fact => {
+          if (fact.subject !== subject) return true;
+          if (predicate !== null && fact.predicate !== predicate) return true;
+          if (obj !== null) {
+            if (fuzzyObj) {
+              return levenshteinRatio(obj.toLowerCase(), fact.object) < objThreshold;
+            } else {
+              return fact.object !== obj.toLowerCase();
+            }
+          }
+          return false; // suppression si aucun filtre objet
+        });
+        this.saveFacts();
+      }
+
+      forgetAllSubject(subject) {
+        this.facts = this.facts.filter(f => f.subject !== subject);
+        this.saveFacts();
+      }
+    }
+
+    // ======================== 4. Patterns d'extraction et de questions ========================
+    const extractionPatterns = [];
+    function addExtractionPatterns(patterns) {
+      for (const [pat, subj, verbOrPred, objGroup, polarity, lang] of patterns) {
+        extractionPatterns.push({ regex: new RegExp(pat, 'i'), subj, verbOrPred, objGroup, polarity, lang });
+      }
+    }
+
+    // Français
+    addExtractionPatterns([
+      [r"^je suis (?P<obj>.+)$", "user", "is", "obj", true, "fr"],
+      [r"^je ne suis pas (?P<obj>.+)$", "user", "is", "obj", false, "fr"],
+      [r"^j'suis (?P<obj>.+)$", "user", "is", "obj", true, "fr"],
+      [r"^j'suis pas (?P<obj>.+)$", "user", "is", "obj", false, "fr"],
+      [r"^tu es (?P<obj>.+)$", "bot", "is", "obj", true, "fr"],
+      [r"^tu n'es pas (?P<obj>.+)$", "bot", "is", "obj", false, "fr"],
+      [r"^t'es (?P<obj>.+)$", "bot", "is", "obj", true, "fr"],
+      [r"^t'es pas (?P<obj>.+)$", "bot", "is", "obj", false, "fr"],
+      [r"^j'aime (?P<obj>.+)$", "user", "like", "obj", true, "fr"],
+      [r"^je n'aime pas (?P<obj>.+)$", "user", "like", "obj", false, "fr"],
+      [r"^j'adore (?P<obj>.+)$", "user", "like", "obj", true, "fr"],
+      [r"^je n'adore pas (?P<obj>.+)$", "user", "like", "obj", false, "fr"],
+      [r"^tu aimes (?P<obj>.+)$", "bot", "like", "obj", true, "fr"],
+      [r"^tu n'aimes pas (?P<obj>.+)$", "bot", "like", "obj", false, "fr"],
+      [r"^j'ai (?P<obj>.+)$", "user", "has", "obj", true, "fr"],
+      [r"^je n'ai pas (?P<obj>.+)$", "user", "has", "obj", false, "fr"],
+      [r"^tu as (?P<obj>.+)$", "bot", "has", "obj", true, "fr"],
+      [r"^tu n'as pas (?P<obj>.+)$", "bot", "has", "obj", false, "fr"],
+      [r"^mon (?P<poss>.+?) est (?P<obj>.+)$", "user", "poss", "obj", true, "fr"],
+      [r"^ma (?P<poss>.+?) est (?P<obj>.+)$", "user", "poss", "obj", true, "fr"],
+      [r"^mes (?P<poss>.+?) sont (?P<obj>.+)$", "user", "poss", "obj", true, "fr"],
+      [r"^ton (?P<poss>.+?) est (?P<obj>.+)$", "bot", "poss", "obj", true, "fr"],
+      [r"^ta (?P<poss>.+?) est (?P<obj>.+)$", "bot", "poss", "obj", true, "fr"],
+      [r"^tes (?P<poss>.+?) sont (?P<obj>.+)$", "bot", "poss", "obj", true, "fr"]
+    ]);
+
+    // Anglais
+    addExtractionPatterns([
+      [r"^i am (?P<obj>.+)$", "user", "is", "obj", true, "en"],
+      [r"^i'm (?P<obj>.+)$", "user", "is", "obj", true, "en"],
+      [r"^i am not (?P<obj>.+)$", "user", "is", "obj", false, "en"],
+      [r"^i'm not (?P<obj>.+)$", "user", "is", "obj", false, "en"],
+      [r"^you are (?P<obj>.+)$", "bot", "is", "obj", true, "en"],
+      [r"^you're (?P<obj>.+)$", "bot", "is", "obj", true, "en"],
+      [r"^you are not (?P<obj>.+)$", "bot", "is", "obj", false, "en"],
+      [r"^you aren't (?P<obj>.+)$", "bot", "is", "obj", false, "en"],
+      [r"^i (?:like|love|enjoy|adore) (?P<obj>.+)$", "user", "like", "obj", true, "en"],
+      [r"^i (?:don't|do not) (?:like|love|enjoy|adore) (?P<obj>.+)$", "user", "like", "obj", false, "en"],
+      [r"^you (?:like|love|enjoy|adore) (?P<obj>.+)$", "bot", "like", "obj", true, "en"],
+      [r"^you (?:don't|do not) (?:like|love|enjoy|adore) (?P<obj>.+)$", "bot", "like", "obj", false, "en"],
+      [r"^i have (?P<obj>.+)$", "user", "has", "obj", true, "en"],
+      [r"^i don't have (?P<obj>.+)$", "user", "has", "obj", false, "en"],
+      [r"^i do not have (?P<obj>.+)$", "user", "has", "obj", false, "en"],
+      [r"^you have (?P<obj>.+)$", "bot", "has", "obj", true, "en"],
+      [r"^you don't have (?P<obj>.+)$", "bot", "has", "obj", false, "en"],
+      [r"^my (?P<poss>.+?) is (?P<obj>.+)$", "user", "poss", "obj", true, "en"],
+      [r"^my (?P<poss>.+?) are (?P<obj>.+)$", "user", "poss", "obj", true, "en"],
+      [r"^your (?P<poss>.+?) is (?P<obj>.+)$", "bot", "poss", "obj", true, "en"],
+      [r"^your (?P<poss>.+?) are (?P<obj>.+)$", "bot", "poss", "obj", true, "en"]
+    ]);
+
+    function extractFact(text) {
+      text = text.trim();
+      for (const { regex, subj, verbOrPred, objGroup, polarity, lang } of extractionPatterns) {
+        const m = text.match(regex);
+        if (!m) continue;
+        if (verbOrPred === "poss") {
+          const rawPoss = m.groups.poss.trim();
+          const obj = m.groups.obj.trim().replace(/[.?!;:,]$/, '');
+          let pred = canonicalizePredicate(rawPoss);
+          if (!pred) pred = rawPoss.replace(/ /g, "_");
+          return { subj, pred, obj, polarity, lang };
+        } else {
+          const obj = m.groups.obj.trim().replace(/[.?!;:,]$/, '');
+          const pred = canonicalizeVerb(verbOrPred);
+          return { subj, pred, obj, polarity, lang };
+        }
+      }
+      return null;
+    }
+
+    // Patterns de questions
+    const questionPatterns = [];
+    function addQuestionPatterns(patterns) {
+      for (const [pat, qtype, subj, predGroup, objGroup, lang] of patterns) {
+        questionPatterns.push({ regex: new RegExp(pat, 'i'), qtype, subj, predGroup, objGroup, lang });
+      }
+    }
+
+    addQuestionPatterns([
+      [r"^(?:quel(?:le)? est|qu'est-ce que|c'est quoi) mon (?P<pred>.+?) \??$", "get_obj", "user", "pred", null, "fr"],
+      [r"^(?:quel(?:le)? est|qu'est-ce que|c'est quoi) ton (?P<pred>.+?) \??$", "get_obj", "bot", "pred", null, "fr"],
+      [r"^suis-je (?P<obj>.+?) \??$", "check", "user", "is", "obj", "fr"],
+      [r"^est-ce que je suis (?P<obj>.+?) \??$", "check", "user", "is", "obj", "fr"],
+      [r"^es-tu (?P<obj>.+?) \??$", "check", "bot", "is", "obj", "fr"],
+      [r"^est-ce que tu es (?P<obj>.+?) \??$", "check", "bot", "is", "obj", "fr"],
+      [r"^est-ce que j'aime (?P<obj>.+?) \??$", "check", "user", "like", "obj", "fr"],
+      [r"^aimes-tu (?P<obj>.+?) \??$", "check", "bot", "like", "obj", "fr"],
+      [r"^est-ce que j'ai (?P<obj>.+?) \??$", "check", "user", "has", "obj", "fr"],
+      [r"^as-tu (?P<obj>.+?) \??$", "check", "bot", "has", "obj", "fr"],
+      [r"^qu'est-ce que j'aime \??$", "get_obj", "user", "like", null, "fr"],
+      [r"^qu'est-ce que tu aimes \??$", "get_obj", "bot", "like", null, "fr"],
+      [r"^qu'est-ce que j'ai \??$", "get_obj", "user", "has", null, "fr"],
+      // Anglais
+      [r"^what is my (?P<pred>.+?) \??$", "get_obj", "user", "pred", null, "en"],
+      [r"^what's my (?P<pred>.+?) \??$", "get_obj", "user", "pred", null, "en"],
+      [r"^what is your (?P<pred>.+?) \??$", "get_obj", "bot", "pred", null, "en"],
+      [r"^what's your (?P<pred>.+?) \??$", "get_obj", "bot", "pred", null, "en"],
+      [r"^am i (?P<obj>.+?) \??$", "check", "user", "is", "obj", "en"],
+      [r"^are you (?P<obj>.+?) \??$", "check", "bot", "is", "obj", "en"],
+      [r"^do i like (?P<obj>.+?) \??$", "check", "user", "like", "obj", "en"],
+      [r"^do you like (?P<obj>.+?) \??$", "check", "bot", "like", "obj", "en"],
+      [r"^do i have (?P<obj>.+?) \??$", "check", "user", "has", "obj", "en"],
+      [r"^do you have (?P<obj>.+?) \??$", "check", "bot", "has", "obj", "en"],
+      [r"^what do i like \??$", "get_obj", "user", "like", null, "en"],
+      [r"^what do you like \??$", "get_obj", "bot", "like", null, "en"],
+      [r"^what do i have \??$", "get_obj", "user", "has", null, "en"]
+    ]);
+
+    function parseQuestion(text) {
+      text = text.trim().replace(/\?$/, '');
+      for (const { regex, qtype, subj, predGroup, objGroup, lang } of questionPatterns) {
+        const m = text.match(regex);
+        if (!m) continue;
+        if (qtype === "get_obj") {
+          let rawPred = m.groups.pred ? m.groups.pred.trim() : null;
+          let pred;
+          if (predGroup === "pred") pred = canonicalizePredicate(rawPred);
+          else if (["like", "has", "is"].includes(predGroup)) pred = predGroup;
+          else pred = canonicalizeVerb(predGroup);
+          return { qtype, subj, pred, obj: null, lang };
+        } else if (qtype === "check") {
+          const obj = m.groups.obj.trim();
+          const pred = ["is", "like", "has"].includes(predGroup) ? predGroup : canonicalizeVerb(predGroup);
+          return { qtype, subj, pred, obj, lang };
+        }
+      }
+      return null;
+    }
+
+    // ======================== 5. Commandes spéciales ========================
+    const forgetPatterns = [
+      { regex: /^forget my (?P<pred>.+)$/i, subj: "user", predGroup: "pred", objGroup: null, lang: "en" },
+      { regex: /^forget that i (like|love|enjoy|have|has) (?P<obj>.+)$/i, subj: "user", predGroup: "verb", objGroup: "obj", lang: "en" },
+      { regex: /^forget everything about me$/i, subj: "user", predGroup: null, objGroup: null, lang: "en" },
+      { regex: /^forget about you$/i, subj: "bot", predGroup: null, objGroup: null, lang: "en" },
+      { regex: /^oublie mon (?P<pred>.+)$/i, subj: "user", predGroup: "pred", objGroup: null, lang: "fr" },
+      { regex: /^oublie que j'aime (?P<obj>.+)$/i, subj: "user", predGroup: "like", objGroup: "obj", lang: "fr" },
+      { regex: /^oublie que j'ai (?P<obj>.+)$/i, subj: "user", predGroup: "has", objGroup: "obj", lang: "fr" },
+      { regex: /^oublie tout sur moi$/i, subj: "user", predGroup: null, objGroup: null, lang: "fr" },
+      { regex: /^oublie tout sur toi$/i, subj: "bot", predGroup: null, objGroup: null, lang: "fr" }
+    ];
+
+    const jokes = {
+      en: [
+        "Why don't scientists trust atoms? Because they make up everything!",
+        "I told my wife she was drawing her eyebrows too high. She looked surprised.",
+        "Why did the scarecrow win an award? Because he was outstanding in his field!"
+      ],
+      fr: [
+        "Pourquoi les plongeurs plongent-ils toujours en arrière ? Parce que sinon ils tombent dans le bateau.",
+        "Qu'est-ce qu'un crocodile qui surveille son petit ? Un croco-dingo.",
+        "Pourquoi est-ce que les oiseaux ne jouent pas aux cartes ? Parce qu'il y a trop de tricheurs dans le ciel."
+      ]
+    };
+
+    const riddles = {
+      en: [
+        ["I speak without a mouth and hear without ears. I have no body, but I come alive with wind. What am I?", "echo"],
+        ["The more of this there is, the less you see. What is it?", "darkness"]
+      ],
+      fr: [
+        ["Je parle sans bouche et j'entends sans oreilles. Je n'ai pas de corps, mais je prends vie avec le vent. Qui suis-je ?", "écho"],
+        ["Plus il y en a, moins on voit. Qu'est-ce que c'est ?", "obscurité"]
+      ]
+    };
+
+    function handleCommand(text, memory) {
+      const textLower = text.trim().toLowerCase();
+      // Oubli
+      for (const { regex, subj, predGroup, objGroup, lang } of forgetPatterns) {
+        const m = textLower.match(regex);
+        if (!m) continue;
+        if (predGroup === null && objGroup === null) {
+          memory.forgetAllSubject(subj);
+          return subj === "user" ?
+            (lang === "fr" ? "J'ai tout oublié sur toi." : "I forgot everything about you.") :
+            (lang === "fr" ? "J'ai tout oublié sur moi." : "I forgot everything about myself.");
+        } else if (predGroup === "pred") {
+          const rawPred = m.groups.pred.trim();
+          const pred = canonicalizePredicate(rawPred) || rawPred.replace(/ /g, "_");
+          memory.forgetFacts(subj, pred);
+          return lang === "fr" ? `J'ai oublié ${rawPred}.` : `I forgot your ${rawPred}.`;
+        } else if (["like", "has", "verb"].includes(predGroup) && objGroup === "obj") {
+          const verb = m.groups.verb || predGroup;
+          const obj = m.groups.obj.trim();
+          const canonVerb = canonicalizeVerb(verb);
+          memory.forgetFacts(subj, canonVerb, obj, true);
+ 

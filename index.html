@@ -1,426 +1,142 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DeepMemBot - Chatbot Mémoire</title>
-    <style>
-        * { box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 800px;
-            margin: 2rem auto;
-            background: #f0f2f5;
-            padding: 0 1rem;
-        }
-        h1 { text-align: center; color: #1a1a2e; margin-bottom: 0.2rem; }
-        .subtitle { text-align: center; color: #555; margin-top: 0; font-style: italic; }
-        #chatbox {
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-            padding: 1.2rem;
-            height: 450px;
-            overflow-y: auto;
-            margin-bottom: 1rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.6rem;
-        }
-        .message {
-            max-width: 85%;
-            padding: 0.7rem 1.2rem;
-            border-radius: 20px;
-            line-height: 1.45;
-            word-break: break-word;
-            animation: fadeIn 0.2s ease;
-        }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        .user {
-            align-self: flex-end;
-            background: linear-gradient(135deg, #007aff, #0051d5);
-            color: white;
-            border-bottom-right-radius: 6px;
-        }
-        .bot {
-            align-self: flex-start;
-            background: #e9e9ef;
-            color: #1c1c1e;
-            border-bottom-left-radius: 6px;
-        }
-        #input-area {
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-        }
-        #userInput {
-            flex: 1;
-            padding: 0.7rem 1.2rem;
-            border: 1.5px solid #d0d0d0;
-            border-radius: 30px;
-            font-size: 1rem;
-            outline: none;
-            transition: border 0.2s;
-        }
-        #userInput:focus { border-color: #007aff; }
-        button {
-            background: #007aff;
-            color: white;
-            border: none;
-            border-radius: 30px;
-            padding: 0.7rem 1.8rem;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: background 0.2s, transform 0.1s;
-        }
-        button:hover { background: #005bb5; }
-        button:active { transform: scale(0.96); }
-        .info { text-align: center; color: #777; font-size: 0.85rem; margin-top: 0.4rem; }
-        .small-btn {
-            background: #e0e0e0;
-            color: #333;
-            padding: 0.4rem 0.9rem;
-            font-size: 0.8rem;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeepMemBot</title>
+  <style>
+    body { font-family: sans-serif; background: #f0f2f5; margin: 0; padding: 1rem; }
+    #chatbox { background: white; border-radius: 12px; height: 400px; overflow-y: auto; padding: 1rem; margin-bottom: 0.5rem; }
+    .msg { margin: 0.5rem 0; padding: 0.5rem 1rem; border-radius: 1rem; max-width: 80%; clear: both; }
+    .user { background: #007aff; color: white; float: right; }
+    .bot { background: #e5e5ea; float: left; }
+    #input-row { display: flex; gap: 0.5rem; }
+    #userInput { flex: 1; padding: 0.7rem; border: 1px solid #ccc; border-radius: 2rem; }
+    button { background: #007aff; color: white; border: none; border-radius: 2rem; padding: 0.7rem 1.2rem; font-size: 1rem; cursor: pointer; }
+    button:active { opacity: 0.8; }
+  </style>
 </head>
 <body>
-    <h1>🧠 DeepMemBot</h1>
-    <p class="subtitle">Bilingue FR/EN · Mémoire · Raisonnement · Météo · Blagues</p>
-    <div id="chatbox"></div>
-    <div id="input-area">
-        <input type="text" id="userInput" placeholder="Parlez-moi..." autofocus>
-        <button onclick="processInput()">➤</button>
-        <button class="small-btn" onclick="document.getElementById('userInput').value='aide'; processInput();">❓</button>
-        <button class="small-btn" onclick="memory.exportFacts();">📤</button>
-    </div>
-    <div class="info">Dites « météo à Paris », « 2+2 », « raconte une blague », « mon nom est… »</div>
+  <h2>🧠 DeepMemBot</h2>
+  <div id="chatbox"></div>
+  <div id="input-row">
+    <input type="text" id="userInput" placeholder="Écrivez...">
+    <button id="sendBtn">Envoyer</button>
+  </div>
 
-    <script>
-    // ================== 1. Utilitaires ==================
-    const levenshteinRatio = (s1, s2) => {
-        s1 = s1.toLowerCase(); s2 = s2.toLowerCase();
-        if (!s1 && !s2) return 1.0;
-        if (!s1 || !s2) return 0.0;
-        const len1 = s1.length, len2 = s2.length;
-        const dp = Array.from({ length: len1 + 1 }, () => Array(len2 + 1).fill(0));
-        for (let i = 0; i <= len1; i++) dp[i][0] = i;
-        for (let j = 0; j <= len2; j++) dp[0][j] = j;
-        for (let i = 1; i <= len1; i++) {
-            for (let j = 1; j <= len2; j++) {
-                dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1,
-                    dp[i - 1][j - 1] + (s1[i - 1] === s2[j - 1] ? 0 : 1));
-            }
+  <script>
+    (function() {
+      // --- Mémoire simple (localStorage) ---
+      const facts = JSON.parse(localStorage.getItem('facts') || '[]');
+      function save() { localStorage.setItem('facts', JSON.stringify(facts)); }
+      function addFact(subj, pred, obj) {
+        obj = obj.trim().toLowerCase();
+        pred = pred.trim().toLowerCase();
+        facts.push({ subj, pred, obj, time: Date.now() });
+        save();
+      }
+      function queryFacts(subj, pred) {
+        return facts.filter(f => f.subj === subj && f.pred === pred);
+      }
+      function forgetAll(subj) {
+        for (let i = facts.length - 1; i >= 0; i--) {
+          if (facts[i].subj === subj) facts.splice(i, 1);
         }
-        return 1.0 - dp[len1][len2] / Math.max(len1, len2);
-    };
+        save();
+      }
 
-    // ================== 2. Base de connaissances ==================
-    const ONTOLOGY = {
-        food: ["pizza", "pâtes", "sushi", "burger", "salade", "chocolat", "frites", "fromage", "pain", "riz"],
-        drink: ["eau", "café", "thé", "jus", "soda", "bière", "vin"],
-        animal: ["chien", "chat", "lapin", "cheval", "oiseau", "poisson", "tortue"],
-        sport: ["football", "tennis", "basket", "natation", "course", "cyclisme"],
-        city: ["paris", "londres", "new york", "tokyo", "berlin", "madrid", "rome", "montréal"],
-        country: ["france", "angleterre", "usa", "japon", "allemagne", "italie", "canada"],
-        color: ["rouge", "bleu", "vert", "jaune", "noir", "blanc", "orange", "violet", "rose"]
-    };
-    const getCategory = (word) => {
-        for (const [cat, items] of Object.entries(ONTOLOGY)) {
-            if (items.includes(word)) return cat;
+      // --- Affichage ---
+      const chatbox = document.getElementById('chatbox');
+      function addMsg(text, sender) {
+        const div = document.createElement('div');
+        div.className = 'msg ' + sender;
+        div.textContent = text;
+        chatbox.appendChild(div);
+        chatbox.scrollTop = chatbox.scrollHeight;
+      }
+
+      // --- Logique du chatbot ---
+      function process(input) {
+        input = input.trim();
+        if (!input) return;
+        addMsg(input, 'user');
+
+        let response = null;
+        const lower = input.toLowerCase();
+
+        // Commandes spéciales
+        if (lower === 'aide') {
+          response = "Dites : je suis..., j'aime..., quelle est ma..., blague, oublie tout sur moi, 2+2, météo Paris";
         }
-        return null;
-    };
-
-    // ================== 3. Canonisation ==================
-    const SURFACE_TO_CANON = {
-        "name":"name","nom":"name","prénom":"name","first name":"name",
-        "age":"age","âge":"age","anniversaire":"birthday","birthday":"birthday",
-        "couleur préférée":"favorite_color","favorite color":"favorite_color","fav color":"favorite_color",
-        "plat préféré":"favorite_food","nourriture préférée":"favorite_food","favorite food":"favorite_food","fav food":"favorite_food",
-        "boisson préférée":"favorite_drink","favorite drink":"favorite_drink",
-        "animal préféré":"favorite_animal","favorite animal":"favorite_animal",
-        "film préféré":"favorite_movie","favorite movie":"favorite_movie",
-        "livre préféré":"favorite_book","favorite book":"favorite_book",
-        "chanson préférée":"favorite_song","favorite song":"favorite_song",
-        "humeur":"mood","mood":"mood","état":"state","state":"state",
-        "travail":"job","job":"job","métier":"job",
-        "pays":"country","country":"country","ville":"city","city":"city",
-        "langue":"language","language":"language",
-        "couleur":"color","color":"color",
-        "équipe préférée":"favorite_team","favorite team":"favorite_team",
-    };
-    const REVERSE_CANON = {};
-    for (const [k, v] of Object.entries(SURFACE_TO_CANON)) REVERSE_CANON[k] = v;
-
-    const UNIQUE_PREDICATES = new Set(Object.values(SURFACE_TO_CANON));
-
-    const VERB_CANON = {
-        "am":"is","are":"is","is":"is","like":"like","love":"like","enjoy":"like","adore":"like",
-        "have":"has","has":"has","got":"has",
-        "suis":"is","es":"is","est":"is","êtes":"is","sont":"is",
-        "aime":"like","adore":"like","kiffe":"like",
-        "ai":"has","as":"has","a":"has","avons":"has","avez":"has","ont":"has",
-        "veux":"want","voulez":"want","veut":"want","want":"want","wants":"want",
-        "préfère":"prefer","prefer":"prefer","prefers":"prefer",
-    };
-
-    function canonicalizePredicate(surface, threshold=0.75) {
-        surface = surface.trim().toLowerCase();
-        if (REVERSE_CANON[surface]) return REVERSE_CANON[surface];
-        let best = null, bestRatio = 0;
-        for (const [key, val] of Object.entries(REVERSE_CANON)) {
-            const r = levenshteinRatio(surface, key);
-            if (r > bestRatio) { bestRatio = r; best = val; }
+        else if (lower === 'oublie tout sur moi') {
+          forgetAll('user');
+          response = "Mémoire effacée.";
         }
-        return bestRatio >= threshold ? best : surface.replace(/ /g, "_");
-    }
-    const canonicalizeVerb = v => VERB_CANON[v.trim().toLowerCase()] || v.trim().toLowerCase();
-
-    // ================== 4. Moteur de mémoire ==================
-    class MemoryEngine {
-        constructor() {
-            this.facts = this.load();
+        else if (lower === 'blague') {
+          response = "Pourquoi les plongeurs plongent-ils toujours en arrière ? Parce que sinon ils tombent dans le bateau.";
         }
-        load() {
-            try {
-                const d = localStorage.getItem('deepmem_facts');
-                return d ? JSON.parse(d).map(f => ({...f, timestamp: new Date(f.timestamp)})) : [];
-            } catch(e) { return []; }
+        // Extraction : "je suis X"
+        else if (/^je suis (.+)/i.test(lower)) {
+          const obj = lower.match(/^je suis (.+)/i)[1];
+          addFact('user', 'is', obj);
+          response = `D'accord, vous êtes ${obj}.`;
         }
-        save() { localStorage.setItem('deepmem_facts', JSON.stringify(this.facts)); }
-        addFact(subj, pred, obj, polarity=true, lang="en") {
-            obj = obj.trim().toLowerCase();
-            pred = pred.trim().toLowerCase();
-            if (UNIQUE_PREDICATES.has(pred)) {
-                this.facts = this.facts.filter(f => !(f.subj===subj && f.pred===pred));
-            } else {
-                const existing = this.facts.find(f => f.subj===subj && f.pred===pred && f.obj===obj);
-                if (existing) {
-                    existing.polarity = polarity;
-                    existing.timestamp = new Date();
-                    this.save();
-                    this.applyInference(subj, pred, obj, polarity);
-                    return;
-                }
-            }
-            this.facts.push({ subj, pred, obj, polarity, lang, timestamp: new Date() });
-            this.save();
-            this.applyInference(subj, pred, obj, polarity);
+        else if (/^j'aime (.+)/i.test(lower)) {
+          const obj = lower.match(/^j'aime (.+)/i)[1];
+          addFact('user', 'like', obj);
+          response = `Je note que vous aimez ${obj}.`;
         }
-        applyInference(subj, pred, obj, polarity) {
-            if (pred === "like" && polarity && subj === "user") {
-                const cat = getCategory(obj);
-                if (cat) {
-                    const parentPred = "favorite_" + cat;
-                    if (!this.queryFacts(subj, parentPred).length) {
-                        this.addFact(subj, parentPred, obj, true, "auto");
-                    }
-                }
-            }
+        else if (/^mon (.+?) est (.+)/i.test(lower)) {
+          const m = lower.match(/^mon (.+?) est (.+)/i);
+          addFact('user', m[1].replace(/ /g,'_'), m[2]);
+          response = `Enregistré.`;
         }
-        queryFacts(subj, pred, obj=null, fuzzyObj=false, thresh=0.8) {
-            return this.facts.filter(f => {
-                if (f.subj !== subj) return false;
-                if (f.pred !== pred) return false;
-                if (obj !== null) {
-                    if (fuzzyObj) return levenshteinRatio(obj.toLowerCase(), f.obj) >= thresh;
-                    else return f.obj === obj.toLowerCase();
-                }
-                return true;
-            });
+        // Questions : "quelle est ma X ?"
+        else if (/^(?:quelle est|quel est) ma (.+?)\??$/i.test(lower)) {
+          let pred = lower.match(/^(?:quelle est|quel est) ma (.+?)\??$/i)[1].replace(/ /g,'_').toLowerCase();
+          const res = queryFacts('user', pred);
+          response = res.length ? res.map(f => f.obj).join(', ') : "Je ne sais pas.";
         }
-        getAllSubjFacts(subj) { return this.facts.filter(f => f.subj===subj); }
-        forgetFacts(subj, pred=null, obj=null, fuzzyObj=false, thresh=0.8) {
-            this.facts = this.facts.filter(f => {
-                if (f.subj !== subj) return true;
-                if (pred !== null && f.pred !== pred) return true;
-                if (obj !== null) {
-                    if (fuzzyObj) return levenshteinRatio(obj.toLowerCase(), f.obj) < thresh;
-                    else return f.obj !== obj.toLowerCase();
-                }
-                return false;
-            });
-            this.save();
+        else if (/^est-ce que j'aime (.+?)\??$/i.test(lower)) {
+          const obj = lower.match(/^est-ce que j'aime (.+?)\??$/i)[1];
+          const res = queryFacts('user', 'like').filter(f => f.obj === obj.toLowerCase());
+          response = res.length ? "Oui." : "Non.";
         }
-        forgetAllSubj(subj) { this.facts = this.facts.filter(f => f.subj!==subj); this.save(); }
-        exportFacts() {
-            const data = JSON.stringify(this.facts, null, 2);
-            const blob = new Blob([data], {type:'application/json'});
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = 'deepmem_facts.json';
-            a.click();
-            addMessage("📂 Faits exportés.", 'bot');
+        // Calcul simple
+        else if (/^[0-9+\-*/().\s]+$/.test(lower)) {
+          try { response = eval(lower).toString(); } catch(e) { response = "Erreur."; }
         }
-    }
-
-    // ================== 5. Patterns d'extraction (JS natif) ==================
-    const patterns = [];
-    // Ajoute un pattern avec groupes capturants numérotés
-    function addPat(regexStr, subj, verbOrPred, objGroupIdx, polarity, lang) {
-        patterns.push({ regex: new RegExp(regexStr, 'i'), subj, verbOrPred, objGroupIdx, polarity, lang });
-    }
-
-    // Français (groupes : 1 = objet, ou 1 = poss et 2 = obj pour les possessifs)
-    addPat("^je suis (.+)$", "user","is",1,true,"fr");
-    addPat("^je ne suis pas (.+)$", "user","is",1,false,"fr");
-    addPat("^j'suis (.+)$", "user","is",1,true,"fr");
-    addPat("^j'suis pas (.+)$", "user","is",1,false,"fr");
-    addPat("^tu es (.+)$", "bot","is",1,true,"fr");
-    addPat("^tu n'es pas (.+)$", "bot","is",1,false,"fr");
-    addPat("^t'es (.+)$", "bot","is",1,true,"fr");
-    addPat("^t'es pas (.+)$", "bot","is",1,false,"fr");
-    addPat("^j'aime (.+)$", "user","like",1,true,"fr");
-    addPat("^je n'aime pas (.+)$", "user","like",1,false,"fr");
-    addPat("^j'adore (.+)$", "user","like",1,true,"fr");
-    addPat("^je n'adore pas (.+)$", "user","like",1,false,"fr");
-    addPat("^tu aimes (.+)$", "bot","like",1,true,"fr");
-    addPat("^tu n'aimes pas (.+)$", "bot","like",1,false,"fr");
-    addPat("^j'ai (.+)$", "user","has",1,true,"fr");
-    addPat("^je n'ai pas (.+)$", "user","has",1,false,"fr");
-    addPat("^tu as (.+)$", "bot","has",1,true,"fr");
-    addPat("^tu n'as pas (.+)$", "bot","has",1,false,"fr");
-    addPat("^mon (.+?) est (.+)$", "user","poss",2,true,"fr");
-    addPat("^ma (.+?) est (.+)$", "user","poss",2,true,"fr");
-    addPat("^mes (.+?) sont (.+)$", "user","poss",2,true,"fr");
-    addPat("^ton (.+?) est (.+)$", "bot","poss",2,true,"fr");
-    addPat("^ta (.+?) est (.+)$", "bot","poss",2,true,"fr");
-    addPat("^tes (.+?) sont (.+)$", "bot","poss",2,true,"fr");
-    addPat("^je veux (.+)$", "user","want",1,true,"fr");
-    addPat("^je ne veux pas (.+)$", "user","want",1,false,"fr");
-    addPat("^je préfère (.+)$", "user","prefer",1,true,"fr");
-    addPat("^je me sens (.+)$", "user","mood",1,true,"fr");
-    addPat("^je suis de (.+)$", "user","city",1,true,"fr");
-    addPat("^je viens de (.+)$", "user","country",1,true,"fr");
-
-    // Anglais
-    addPat("^i am (.+)$", "user","is",1,true,"en");
-    addPat("^i'm (.+)$", "user","is",1,true,"en");
-    addPat("^i am not (.+)$", "user","is",1,false,"en");
-    addPat("^i'm not (.+)$", "user","is",1,false,"en");
-    addPat("^you are (.+)$", "bot","is",1,true,"en");
-    addPat("^you're (.+)$", "bot","is",1,true,"en");
-    addPat("^you are not (.+)$", "bot","is",1,false,"en");
-    addPat("^you aren't (.+)$", "bot","is",1,false,"en");
-    addPat("^i (?:like|love|enjoy|adore) (.+)$", "user","like",1,true,"en");
-    addPat("^i (?:don't|do not) (?:like|love|enjoy|adore) (.+)$", "user","like",1,false,"en");
-    addPat("^you (?:like|love|enjoy|adore) (.+)$", "bot","like",1,true,"en");
-    addPat("^you (?:don't|do not) (?:like|love|enjoy|adore) (.+)$", "bot","like",1,false,"en");
-    addPat("^i have (.+)$", "user","has",1,true,"en");
-    addPat("^i don't have (.+)$", "user","has",1,false,"en");
-    addPat("^you have (.+)$", "bot","has",1,true,"en");
-    addPat("^you don't have (.+)$", "bot","has",1,false,"en");
-    addPat("^my (.+?) is (.+)$", "user","poss",2,true,"en");
-    addPat("^your (.+?) is (.+)$", "bot","poss",2,true,"en");
-    addPat("^i want (.+)$", "user","want",1,true,"en");
-    addPat("^i don't want (.+)$", "user","want",1,false,"en");
-    addPat("^i prefer (.+)$", "user","prefer",1,true,"en");
-    addPat("^i feel (.+)$", "user","mood",1,true,"en");
-    addPat("^i am from (.+)$", "user","country",1,true,"en");
-    addPat("^i'm from (.+)$", "user","country",1,true,"en");
-
-    function extractFact(text) {
-        text = text.trim();
-        for (const {regex, subj, verbOrPred, objGroupIdx, polarity, lang} of patterns) {
-            const m = text.match(regex);
-            if (!m) continue;
-            let obj, pred;
-            if (verbOrPred === "poss") {
-                // Groupes: 1 = poss, 2 = obj
-                const rawPoss = m[1].trim();
-                obj = m[2].trim().replace(/[.?!;:,]$/, '');
-                pred = canonicalizePredicate(rawPoss) || rawPoss.replace(/ /g, "_");
-            } else {
-                obj = m[1].trim().replace(/[.?!;:,]$/, '');
-                pred = canonicalizeVerb(verbOrPred);
-            }
-            return { subj, pred, obj, polarity, lang };
+        // Météo
+        else if (/^météo (.+)/i.test(lower)) {
+          const city = lower.match(/^météo (.+)/i)[1];
+          response = "Recherche...";
+          fetch(`https://wttr.in/${encodeURIComponent(city)}?format=%C+%t`)
+            .then(r => r.text())
+            .then(txt => addMsg(`Météo à ${city} : ${txt.trim()}`, 'bot'))
+            .catch(() => addMsg("Impossible d'obtenir la météo.", 'bot'));
         }
-        return null;
-    }
-
-    // ================== 6. Questions ==================
-    const qPatterns = [];
-    function addQ(regexStr, qtype, subj, predGroup, objGroupIdx, lang) {
-        qPatterns.push({ regex: new RegExp(regexStr, 'i'), qtype, subj, predGroup, objGroupIdx, lang });
-    }
-
-    // Français
-    addQ("^(?:quel(?:le)? est|qu'est-ce que|c'est quoi) mon (.+?) ?\\??$", "get","user","pred",1,"fr");
-    addQ("^(?:quel(?:le)? est|qu'est-ce que|c'est quoi) ton (.+?) ?\\??$", "get","bot","pred",1,"fr");
-    addQ("^suis-je (.+?) ?\\??$", "check","user","is",1,"fr");
-    addQ("^es-tu (.+?) ?\\??$", "check","bot","is",1,"fr");
-    addQ("^est-ce que j'aime (.+?) ?\\??$", "check","user","like",1,"fr");
-    addQ("^aimes-tu (.+?) ?\\??$", "check","bot","like",1,"fr");
-    addQ("^est-ce que j'ai (.+?) ?\\??$", "check","user","has",1,"fr");
-    addQ("^as-tu (.+?) ?\\??$", "check","bot","has",1,"fr");
-    addQ("^qu'est-ce que j'aime ?\\??$", "get","user","like",null,"fr");
-    addQ("^qu'est-ce que tu aimes ?\\??$", "get","bot","like",null,"fr");
-    addQ("^comment je me sens ?\\??$", "get","user","mood",null,"fr");
-    addQ("^d'où je viens ?\\??$", "get","user","country",null,"fr");
-
-    // Anglais
-    addQ("^what is my (.+?) ?\\??$", "get","user","pred",1,"en");
-    addQ("^what's my (.+?) ?\\??$", "get","user","pred",1,"en");
-    addQ("^what is your (.+?) ?\\??$", "get","bot","pred",1,"en");
-    addQ("^what's your (.+?) ?\\??$", "get","bot","pred",1,"en");
-    addQ("^am i (.+?) ?\\??$", "check","user","is",1,"en");
-    addQ("^are you (.+?) ?\\??$", "check","bot","is",1,"en");
-    addQ("^do i like (.+?) ?\\??$", "check","user","like",1,"en");
-    addQ("^do you like (.+?) ?\\??$", "check","bot","like",1,"en");
-    addQ("^do i have (.+?) ?\\??$", "check","user","has",1,"en");
-    addQ("^do you have (.+?) ?\\??$", "check","bot","has",1,"en");
-    addQ("^what do i like ?\\??$", "get","user","like",null,"en");
-    addQ("^what do you like ?\\??$", "get","bot","like",null,"en");
-    addQ("^how do i feel ?\\??$", "get","user","mood",null,"en");
-    addQ("^where am i from ?\\??$", "get","user","country",null,"en");
-
-    function parseQuestion(text) {
-        text = text.trim().replace(/\?+$/, '');
-        for (const {regex, qtype, subj, predGroup, objGroupIdx, lang} of qPatterns) {
-            const m = text.match(regex);
-            if (!m) continue;
-            if (qtype === "get") {
-                let rawPred = m[1] ? m[1].trim() : null;
-                let pred;
-                if (predGroup === "pred") pred = canonicalizePredicate(rawPred);
-                else if (["like","has","is","mood","country"].includes(predGroup)) pred = predGroup;
-                else pred = canonicalizeVerb(predGroup);
-                return { qtype, subj, pred, obj: null, lang };
-            } else if (qtype === "check") {
-                const obj = m[1].trim();
-                const pred = ["is","like","has","mood","country"].includes(predGroup) ? predGroup : canonicalizeVerb(predGroup);
-                return { qtype, subj, pred, obj, lang };
-            }
+        else {
+          response = "Désolé, je n'ai pas compris. Tapez 'aide'.";
         }
-        return null;
-    }
 
-    // ================== 7. Commandes ==================
-    const jokes = {
-        fr: [
-            "Pourquoi les plongeurs plongent toujours en arrière ? Parce que sinon ils tombent dans le bateau.",
-            "Que fait une fraise sur un lit ? Elle attend son petit fils.",
-            "Pourquoi est-ce que les oiseaux ne jouent pas aux cartes ? Parce qu'il y a trop de tricheurs dans le ciel.",
-            "Quel est le comble pour un électricien ? Ne pas être au courant."
-        ],
-        en: [
-            "Why don't scientists trust atoms? Because they make up everything!",
-            "I told my wife she was drawing her eyebrows too high. She looked surprised.",
-            "Why did the scarecrow win an award? Because he was outstanding in his field!",
-            "Parallel lines have so much in common. It’s a shame they’ll never meet."
-        ]
-    };
-    const riddles = {
-        fr: [
-            ["Je parle sans bouche, j'entends sans oreilles. Qui suis-je ?", "écho"],
-            ["Plus il y en a, moins on voit. Qu'est-ce ?", "obscurité"]
-        ],
-        en: [
-            ["I speak without a mouth and hear without ears. What am I?", "echo"],
-            ["The more of this there is, the less you see. What is it?", "darkness"]
-        ]
-    };
+        if (response) addMsg(response, 'bot');
+      }
 
- 
+      // --- Événements ---
+      document.getElementById('sendBtn').addEventListener('click', function() {
+        const input = document.getElementById('userInput');
+        process(input.value);
+        input.value = '';
+      });
+      document.getElementById('userInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+          document.getElementById('sendBtn').click();
+        }
+      });
+
+      // Message initial
+      addMsg("Bonjour ! Je suis DeepMemBot. Posez-moi des questions, apprenez-moi des choses.", 'bot');
+    })();
+  </script>
+</body>
+    </html>
